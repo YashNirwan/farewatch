@@ -1,66 +1,74 @@
 # farewatch
 
-Personal anomaly-fare watcher for NYC airports (JFK / EWR / LGA). Three detectors:
+A flight-price anomaly detector that polls multiple travel data sources, builds a statistical baseline per route, and alerts when a fare drops far enough below it to be worth booking — including fares that never surface on mainstream aggregators.
 
-1. **Price poller** — samples fares on a 96-route watchlist via the Travelpayouts (Aviasales) cached-prices API, stores every observation in SQLite, and alerts when a fare drops below **45% of the rolling median** for that route + departure month. One call returns cached fares for a whole route-month, so the baseline builds fast.
-2. **Live watcher** — checks Google Flights prices directly (via `fast-flights`) for `watches` routes every 30 minutes, rotating through departure dates and trip lengths so the whole window gets swept several times a day. Alerts the moment a round trip crosses the watch's `max_price`. This is the "catch the mistake fare while it's alive" tier.
-3. **Hidden-city watcher** — checks Skiplagged hourly for `watches` routes, pricing the trip as two one-ways (hidden-city fares Google never shows). Alerts when the pair total crosses `max_price`. Hidden-city caveats apply: carry-on only, book legs separately, exit at your stop, don't make it a habit on one airline. These prices are never mixed into the published-fare baseline.
-4. **Feed monitor** — scans The Flight Deal (NYC category), Fly4free, and r/flightdeals for NYC-keyword deals. Works on day one, while the price baseline is still warming up.
+Built because error/mistake fares and deep fare-war pricing live for a few hours before airlines correct them; catching them requires polling continuously and comparing against a route's normal price range, not just eyeballing Google Flights once a day.
+
+## Architecture
+
+Four independent watchers, each hitting a different data source, coordinated through a shared SQLite store (`observations`, `alerts`):
+
+| Watcher | Source | Cadence | Trigger |
+|---|---|---|---|
+| **Baseline poller** | Travelpayouts (Aviasales cached-prices API) | every 6 h | price ≤ `ratio_threshold` × rolling median for that route + month |
+| **Live watcher** | Google Flights (via `fast-flights`) | every 30 min | price ≤ an absolute target for a specific watched route |
+| **Hidden-city watcher** | Skiplagged | hourly | same target, priced as two independent one-way tickets |
+| **Feed monitor** | RSS from deal-tracking sites (The Flight Deal, Fly4free, r/flightdeals) | every 20 min | keyword match on tracked airports |
+
+The baseline poller builds statistical context across a wide multi-route watchlist (one call returns cached fares for an entire route-month, so the baseline fills in fast). The live and hidden-city watchers apply the same idea to specific routes a user cares about right now, checked against real-time data instead of a cache — this is what catches a fare while it's still bookable rather than after a deal site has already posted it. Providers are swappable behind a common `fares(origin, dest, date) -> [(date, price)]` interface (`travelpayouts.py`, `amadeus.py`), so adding a new price source doesn't touch the scheduling or alerting logic.
+
+Alerts are deduplicated via a fingerprint (route + date + price bucket) stored in `alerts`, and delivered through a fallback chain: Telegram (if configured) → `terminal-notifier` → AppleScript notification, so clicking an alert opens the relevant booking page directly.
 
 ## Setup
 
 ```bash
-cd ~/Projects/farewatch
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
-Get a free API token: sign up at [travelpayouts.com](https://www.travelpayouts.com) (it's Aviasales' affiliate network — the flight-data API is free to use), then **Profile → API token**. Create `.env`:
+Get a free API token at [travelpayouts.com](https://www.travelpayouts.com) (Profile → API token) and create `.env`:
 
 ```
 TRAVELPAYOUTS_TOKEN=your_token
 
-# optional — Telegram push alerts (falls back to macOS notifications without these)
+# optional — Telegram push (falls back to a local OS notification without these)
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
 ```
 
-> **Data caveat:** Travelpayouts serves *cached* prices from recent Aviasales searches — popular routes (which NYC routes are) refresh constantly, but a hit needs verification before booking. That's fine: the alert links straight to Google Flights to confirm.
->
-> **Alternative provider:** the code also supports the Amadeus Self-Service API (`AMADEUS_CLIENT_ID`/`AMADEUS_CLIENT_SECRET`/`AMADEUS_ENV` in `.env`, used only when `TRAVELPAYOUTS_TOKEN` is absent) — but as of mid-2026 their portal has no working self-service signup, so Travelpayouts is the default.
+> Travelpayouts serves *cached* prices from recent searches, which is why the baseline poller pairs with the live watcher for routes worth checking in real time. The code also supports the Amadeus Self-Service API as an alternate provider (`AMADEUS_CLIENT_ID`/`AMADEUS_CLIENT_SECRET`) behind the same interface.
 
 ## Usage
 
 ```bash
-.venv/bin/python -m farewatch.cli test-alert   # verify notifications
-.venv/bin/python -m farewatch.cli feeds        # scan deal feeds now
-.venv/bin/python -m farewatch.cli poll         # poll prices, build baseline, alert on anomalies
-.venv/bin/python -m farewatch.cli report       # baseline coverage + recent alerts
+.venv/bin/python -m farewatch.cli poll     # poll baseline prices, alert on anomalies
+.venv/bin/python -m farewatch.cli live     # live-check watched routes via Google Flights
+.venv/bin/python -m farewatch.cli hidden   # check watched routes via Skiplagged
+.venv/bin/python -m farewatch.cli feeds    # scan deal feeds
+.venv/bin/python -m farewatch.cli report   # baseline coverage + recent alerts
+.venv/bin/python -m farewatch.cli alerts   # full alert history
 ```
 
-## Scheduling (launchd)
-
-Four LaunchAgents in `~/Library/LaunchAgents` keep it running (launchd, not cron, so macOS notifications work): `com.farewatch.live` (every 30 min), `com.farewatch.feeds` (every 20 min), `com.farewatch.hidden` (hourly), `com.farewatch.poll` (every 6 h). Logs land in `logs/`.
+## Testing
 
 ```bash
-launchctl list | grep farewatch                                   # status
-launchctl bootout gui/$(id -u)/com.farewatch.live                  # stop one
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.farewatch.live.plist  # start again
+.venv/bin/pip install pytest
+.venv/bin/pytest tests/ -v
 ```
 
-Alerts arrive as macOS Notification Center banners (with sound); add `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` to `.env` if you ever want phone push too.
+Unit tests cover the anomaly-detection thresholds (`test_anomaly.py`), storage/dedup logic (`test_db.py`), deterministic date/route sampling (`test_poller.py`), and the RSS/Atom feed parser (`test_feeds.py`) — the pure-function core of the system, independent of any live network calls.
 
-## Tuning (`config.json`)
+## Scheduling
 
-- `destinations` — add/remove airports you'd actually fly to.
-- `one_way` (false) — fares are round-trip totals by default; set true for one-way pricing. Changing it mid-stream poisons the baseline — wipe the `observations` table if you flip it.
-- `watches` — absolute price targets that alert regardless of the statistical baseline, e.g. `{"destination": "SEA", "max_price": 250}`. For "I want to go to X and I'm waiting for a deal" routes.
-- `max_requests_per_run` (60) × 4 runs/day ≈ 7,200 calls/month. Routes rotate daily so the whole watchlist gets covered even under the budget. Lower it if you want to stay inside the free quota.
-- `dates_per_route` (2) — departure dates sampled per route per run, drawn from `search_window_days` (21–120 days out).
-- `anomaly.ratio_threshold` (0.45) — alert when price ≤ 45% of median. Raise to ~0.55 to also catch strong sales; lower to ~0.35 for near-certain mistake fares only.
-- `anomaly.min_observations` (8) — a route-month needs this many data points before it can alert. Expect **2–3 weeks of warm-up** before price alerts start firing; the feed monitor covers you meanwhile.
+Runs as four `launchd` LaunchAgents (macOS) so scheduled jobs can still trigger OS notifications, which cron cannot. Config lives in `~/Library/LaunchAgents/com.farewatch.*.plist`; see `launchctl list | grep farewatch` for status.
 
-## When an alert fires
+## Configuration (`config.json`)
 
-1. Book **directly with the airline**, immediately. OTAs cancel mistake fares faster.
-2. Don't book hotels or anything non-refundable for ~72 hours — airlines may cancel a true error fare (they must refund you, but the ticket can die).
-3. Don't call the airline to ask about the fare. Just book it.
+- `origins` / `destinations` — the route watchlist for the baseline poller.
+- `watches` — routes checked live against an absolute price target, independent of the statistical baseline, e.g. `{"destination": "SEA", "max_price": 250, "trip_days": [3, 7, 14]}`.
+- `anomaly.ratio_threshold` — alert when price ≤ this fraction of the route's rolling median (e.g. `0.6` alerts at 40%+ off).
+- `anomaly.min_observations` — a route-month needs this many samples before it can alert; the feed monitor covers the warm-up gap.
+- `one_way` — round-trip totals by default; changing it mid-stream requires clearing `observations` since the baseline isn't comparable across modes.
+
+## Notes on hidden-city fares
+
+The Skiplagged watcher surfaces hidden-city itineraries (booking through a layover city and not flying the final leg), which are legal for the traveler but against most airlines' contracts of carriage. It's included here as one more data source in the price-comparison model, not a recommendation to rely on it — the usual caveats apply (carry-on only, book each direction separately, don't do it repeatedly on one airline/frequent-flyer account).

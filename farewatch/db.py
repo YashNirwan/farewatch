@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS alerts (
 """
 
 
-def connect():
-    conn = sqlite3.connect(DB_PATH)
+def connect(path=None):
+    conn = sqlite3.connect(path or DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     return conn

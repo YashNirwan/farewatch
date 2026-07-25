@@ -1,0 +1,88 @@
+{
+  "origins": [
+    "JFK",
+    "EWR",
+    "LGA"
+  ],
+  "destinations": [
+    "LAX",
+    "SFO",
+    "MIA",
+    "AUS",
+    "DEN",
+    "SEA",
+    "LHR",
+    "CDG",
+    "AMS",
+    "FCO",
+    "MXP",
+    "MAD",
+    "BCN",
+    "LIS",
+    "DUB",
+    "ATH",
+    "IST",
+    "CMN",
+    "DXB",
+    "DEL",
+    "NRT",
+    "ICN",
+    "HKG",
+    "SIN",
+    "BKK",
+    "GRU",
+    "EZE",
+    "BOG",
+    "LIM",
+    "MEX",
+    "CUN",
+    "SJU"
+  ],
+  "currency": "USD",
+  "one_way": false,
+  "search_window_days": [
+    21,
+    120
+  ],
+  "dates_per_route": 2,
+  "max_requests_per_run": 60,
+  "watches": [
+    {
+      "destination": "SEA",
+      "max_price": 250,
+      "note": "Seattle trip to see friend",
+      "trip_days": [
+        2,
+        3,
+        4,
+        7,
+        10,
+        14,
+        21,
+        28
+      ]
+    }
+  ],
+  "anomaly": {
+    "ratio_threshold": 0.6,
+    "min_observations": 8,
+    "min_price": 40
+  },
+  "feeds": {
+    "urls": [
+      "https://www.theflightdeal.com/category/flight-deals/nyc/feed/",
+      "https://www.fly4free.com/feed/",
+      "https://www.reddit.com/r/flightdeals/.rss"
+    ],
+    "keywords": [
+      "new york",
+      "nyc",
+      "jfk",
+      "ewr",
+      "lga",
+      "newark"
+    ]
+  },
+  "live_max_requests": 80,
+  "hidden_max_requests": 8
+}

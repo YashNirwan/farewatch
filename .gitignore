@@ -1,0 +1,5 @@
+.env
+farewatch.db
+.venv/
+__pycache__/
+logs/

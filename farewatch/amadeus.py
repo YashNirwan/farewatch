@@ -67,6 +67,6 @@ class AmadeusClient:
         return min(float(o["price"]["grandTotal"]) for o in offers)
 
     def fares(self, origin, dest, depart_date, currency="USD"):
-        """Provider interface: [(depart_date, price), ...] (single date for Amadeus)."""
+        """Provider interface: [(depart_date, price, meta), ...] (single date for Amadeus)."""
         price = self.cheapest_fare(origin, dest, depart_date, currency)
-        return [(depart_date, price)] if price is not None else []
+        return [(depart_date, price, None)] if price is not None else []

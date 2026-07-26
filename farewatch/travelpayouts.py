@@ -22,7 +22,7 @@ class TravelpayoutsClient:
             )
 
     def fares(self, origin, dest, depart_date, currency="USD"):
-        """Return [(depart_date, price), ...] for the month containing depart_date."""
+        """Return [(depart_date, price, meta), ...] for the month containing depart_date."""
         resp = requests.get(
             API_URL,
             params={
@@ -48,6 +48,13 @@ class TravelpayoutsClient:
             price = entry.get("price")
             if not date or price is None:
                 continue
-            if date not in best or price < best[date]:
-                best[date] = float(price)
-        return sorted(best.items())
+            if date not in best or price < best[date][0]:
+                best[date] = (
+                    float(price),
+                    {
+                        "return_at": (entry.get("return_at") or "")[:10],
+                        "airline": entry.get("airline"),
+                        "link": entry.get("link"),
+                    },
+                )
+        return [(date, price, meta) for date, (price, meta) in sorted(best.items())]

@@ -30,7 +30,7 @@ def _combos(cfg):
 
 def run(conn, cfg):
     try:
-        from fast_flights import FlightData, Passengers, get_flights
+        from fast_flights import FlightData, Passengers, create_filter, get_flights_from_filter
     except ImportError:
         raise SystemExit("fast-flights not installed: .venv/bin/pip install fast-flights")
 
@@ -49,37 +49,41 @@ def run(conn, cfg):
         depart = today + dt.timedelta(days=offset)
         ret = depart + dt.timedelta(days=length)
         dest = watch["destination"]
+        flight_filter = create_filter(
+            flight_data=[
+                FlightData(date=depart.isoformat(), from_airport=origin, to_airport=dest),
+                FlightData(date=ret.isoformat(), from_airport=dest, to_airport=origin),
+            ],
+            trip="round-trip",
+            seat="economy",
+            passengers=Passengers(adults=1),
+        )
         try:
-            result = get_flights(
-                flight_data=[
-                    FlightData(date=depart.isoformat(), from_airport=origin, to_airport=dest),
-                    FlightData(date=ret.isoformat(), from_airport=dest, to_airport=origin),
-                ],
-                trip="round-trip",
-                seat="economy",
-                passengers=Passengers(adults=1),
-            )
+            result = get_flights_from_filter(flight_filter)
         except Exception as e:
             err = " ".join(str(e).split())[:120]  # fast-flights dumps whole pages into exceptions
             print(f"live error {origin}-{dest} {depart}: {err}")
             time.sleep(2)
             continue
-        prices = [p for p in (_price_to_float(f.price) for f in result.flights) if p and p > 30]
+        priced = [(p, f) for f in result.flights
+                  for p in [_price_to_float(f.price)] if p and p > 30]
         checked += 1
-        if not prices:
+        if not priced:
             continue
-        cheapest = min(prices)
+        cheapest, best = min(priced, key=lambda pf: pf[0])
         db.record_observation(conn, origin, dest, depart.isoformat(), cheapest, cfg["currency"])
         print(f"{origin}-{dest} {depart}+{length}d: {cheapest:.0f} {cfg['currency']} [{result.current_price}]")
         if cheapest <= watch["max_price"]:
             fingerprint = f"live:{origin}:{dest}:{depart}:{int(cheapest)}"
             if not db.already_alerted(conn, fingerprint):
+                # tfs param pins the exact round-trip search Google Flights uses internally
+                url = f"https://www.google.com/travel/flights?tfs={flight_filter.as_b64().decode()}"
                 msg = (
                     f"{origin} → {dest}, {depart} to {ret} ({length} days)\n"
-                    f"{cheapest:.0f} {cfg['currency']} round trip — under your "
-                    f"{watch['max_price']} target ({watch.get('note', '')})\n"
-                    f"https://www.google.com/travel/flights?q=Flights%20from%20{origin}%20to%20{dest}"
-                    f"%20on%20{depart}%20returning%20{ret}"
+                    f"{cheapest:.0f} {cfg['currency']} round trip — {best.name}, "
+                    f"{best.stops} stop(s), departs {best.departure}\n"
+                    f"Under your {watch['max_price']} target ({watch.get('note', '')})\n"
+                    f"{url}"
                 )
                 alerts.send("🎯 Live fare hit", msg)
                 db.record_alert(conn, fingerprint, "live", msg)

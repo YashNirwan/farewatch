@@ -30,22 +30,40 @@ def _rotated_routes(cfg, today):
     return routes[shift:] + routes[:shift]
 
 
-def _maybe_alert(conn, cfg, origin, dest, depart_date, price, median, n):
+def _fare_link(origin, dest, depart_date, meta):
+    """Deep link to the exact cached itinerary when the provider gives one."""
+    if meta and meta.get("link"):
+        return "https://www.aviasales.com" + meta["link"]
+    return f"https://www.google.com/travel/flights?q=Flights%20from%20{origin}%20to%20{dest}%20on%20{depart_date}"
+
+
+def _fare_details(depart_date, meta):
+    if not meta:
+        return f"depart {depart_date}"
+    parts = [f"depart {depart_date}"]
+    if meta.get("return_at"):
+        parts.append(f"return {meta['return_at']}")
+    if meta.get("airline"):
+        parts.append(meta["airline"])
+    return ", ".join(parts)
+
+
+def _maybe_alert(conn, cfg, origin, dest, depart_date, price, median, n, meta=None):
     fingerprint = f"price:{origin}:{dest}:{depart_date}:{int(price)}"
     if db.already_alerted(conn, fingerprint):
         return False
     pct_off = 100 * (1 - price / median)
     msg = (
-        f"{origin} → {dest} on {depart_date}\n"
+        f"{origin} → {dest} ({_fare_details(depart_date, meta)})\n"
         f"{price:.0f} {cfg['currency']} — {pct_off:.0f}% below the {median:.0f} {cfg['currency']} median ({n} obs)\n"
-        f"https://www.google.com/travel/flights?q=Flights%20from%20{origin}%20to%20{dest}%20on%20{depart_date}"
+        f"{_fare_link(origin, dest, depart_date, meta)}"
     )
     alerts.send("⚡ Anomaly fare", msg)
     db.record_alert(conn, fingerprint, "price", msg)
     return True
 
 
-def _check_watches(conn, cfg, origin, dest, depart_date, price):
+def _check_watches(conn, cfg, origin, dest, depart_date, price, meta=None):
     for watch in cfg.get("watches", []):
         if watch["destination"] != dest or price > watch["max_price"]:
             continue
@@ -53,10 +71,10 @@ def _check_watches(conn, cfg, origin, dest, depart_date, price):
         if db.already_alerted(conn, fingerprint):
             continue
         msg = (
-            f"{origin} → {dest} on {depart_date}\n"
+            f"{origin} → {dest} ({_fare_details(depart_date, meta)})\n"
             f"{price:.0f} {cfg['currency']} — under your {watch['max_price']} {cfg['currency']} target"
             f" ({watch.get('note', '')})\n"
-            f"https://www.google.com/travel/flights?q=Flights%20from%20{origin}%20to%20{dest}%20on%20{depart_date}"
+            f"{_fare_link(origin, dest, depart_date, meta)}"
         )
         alerts.send("🎯 Watched route hit", msg)
         db.record_alert(conn, fingerprint, "watch", msg)
@@ -92,12 +110,12 @@ def run(conn, cfg):
             requests_made += 1
             if not observations:
                 continue
-            cheapest = min(p for _, p in observations)
-            for obs_date, price in observations:
+            cheapest = min(p for _, p, _ in observations)
+            for obs_date, price, meta in observations:
                 is_anomaly, median, n = anomaly.check(conn, cfg, origin, dest, obs_date, price)
                 db.record_observation(conn, origin, dest, obs_date, price, currency)
-                _check_watches(conn, cfg, origin, dest, obs_date, price)
-                if is_anomaly and _maybe_alert(conn, cfg, origin, dest, obs_date, price, median, n):
+                _check_watches(conn, cfg, origin, dest, obs_date, price, meta)
+                if is_anomaly and _maybe_alert(conn, cfg, origin, dest, obs_date, price, median, n, meta):
                     anomalies += 1
             print(f"{origin}-{dest} {depart_date[:7]}: {len(observations)} date(s), cheapest {cheapest:.0f} {currency}")
 

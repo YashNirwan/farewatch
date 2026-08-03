@@ -28,6 +28,20 @@ def _combos(cfg):
     return out
 
 
+def _select(combos, budget, shift):
+    """Pick `budget` combos strided across the whole list, not a contiguous block.
+
+    _combos() is built in nested-loop order, so a contiguous slice covers one
+    origin and a narrow band of departure dates. Striding spreads each run
+    across the full calendar while `shift` walks the offsets over time.
+    """
+    n = len(combos)
+    if budget >= n:
+        return list(combos)
+    step = max(1, n // budget)
+    return [combos[(shift + i * step) % n] for i in range(budget)]
+
+
 def run(conn, cfg):
     try:
         from fast_flights import FlightData, Passengers, create_filter, get_flights_from_filter
@@ -41,11 +55,10 @@ def run(conn, cfg):
     budget = cfg.get("live_max_requests", 40)
     today = dt.date.today()
     shift = int(time.time() // 1800) % len(combos)  # new slice every ~30 min
-    combos = combos[shift:] + combos[:shift]
 
     checked = 0
     hits = 0
-    for watch, origin, offset, length in combos[:budget]:
+    for watch, origin, offset, length in _select(combos, budget, shift):
         depart = today + dt.timedelta(days=offset)
         ret = depart + dt.timedelta(days=length)
         dest = watch["destination"]

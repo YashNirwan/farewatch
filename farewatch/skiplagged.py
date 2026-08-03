@@ -42,7 +42,7 @@ class SkiplaggedClient:
 
 def run(conn, cfg):
     from . import alerts, db
-    from .livewatch import _combos
+    from .livewatch import _combos, _select
     import datetime as dt
 
     combos = _combos(cfg)
@@ -52,12 +52,11 @@ def run(conn, cfg):
     budget = cfg.get("hidden_max_requests", 5)
     today = dt.date.today()
     shift = int(time.time() // 3600) % len(combos)  # new slice each hour
-    combos = combos[shift:] + combos[:shift]
 
     client = SkiplaggedClient()
     checked = 0
     hits = 0
-    for watch, origin, offset, length in combos[:budget]:
+    for watch, origin, offset, length in _select(combos, budget, shift):
         depart = today + dt.timedelta(days=offset)
         ret = depart + dt.timedelta(days=length)
         dest = watch["destination"]

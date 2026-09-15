@@ -64,6 +64,28 @@
       ]
     },
     {
+      "origins": [
+        "SEA"
+      ],
+      "destinations": [
+        "JFK",
+        "EWR",
+        "LGA"
+      ],
+      "depart_between": [
+        "2026-12-12",
+        "2026-12-24"
+      ],
+      "max_price": 330,
+      "note": "friend visiting NYC before Christmas",
+      "trip_days": [
+        5,
+        7,
+        10,
+        14
+      ]
+    },
+    {
       "destination": "IAH",
       "max_price": 170,
       "note": "watched route",
@@ -100,5 +122,5 @@
     ]
   },
   "live_max_requests": 120,
-  "hidden_max_requests": 8
+  "hidden_max_requests": 14
 }

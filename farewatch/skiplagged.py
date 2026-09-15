@@ -56,10 +56,9 @@ def run(conn, cfg):
     client = SkiplaggedClient()
     checked = 0
     hits = 0
-    for watch, origin, offset, length in _select(combos, budget, shift):
+    for watch, origin, dest, offset, length in _select(combos, budget, shift):
         depart = today + dt.timedelta(days=offset)
         ret = depart + dt.timedelta(days=length)
-        dest = watch["destination"]
         try:
             out = client.cheapest_oneway(origin, dest, depart.isoformat())
             time.sleep(3)

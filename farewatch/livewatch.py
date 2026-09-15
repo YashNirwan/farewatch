@@ -17,14 +17,39 @@ def _price_to_float(s):
     return float(m.group().replace(",", "")) if m else None
 
 
+def _offsets(watch, today, lo, hi):
+    """Day-offsets to check for a watch: its own date range, or the rolling window."""
+    window = watch.get("depart_between")
+    if window:
+        lo = max(1, (dt.date.fromisoformat(window[0]) - today).days)
+        hi = (dt.date.fromisoformat(window[1]) - today).days
+        step = 1  # pinned ranges are short, so check every day in them
+    else:
+        step = 3
+    return list(range(lo, hi + 1, step))
+
+
 def _combos(cfg):
+    """Every (watch, origin, dest, day-offset, trip-length) to check.
+
+    A watch defaults to the configured origins and the rolling search window,
+    but may override either: `origins`/`destinations` to reverse or widen the
+    direction, `depart_between` to pin a fixed date range.
+    """
+    today = dt.date.today()
     lo, hi = cfg["search_window_days"]
     out = []
     for watch in cfg.get("watches", []):
-        for origin in cfg["origins"]:
-            for offset in range(lo, hi + 1, 3):
-                for length in watch.get("trip_days", [3]):
-                    out.append((watch, origin, offset, length))
+        origins = watch.get("origins") or cfg["origins"]
+        dests = watch.get("destinations") or [watch["destination"]]
+        offsets = _offsets(watch, today, lo, hi)
+        for origin in origins:
+            for dest in dests:
+                if origin == dest:
+                    continue
+                for offset in offsets:
+                    for length in watch.get("trip_days", [3]):
+                        out.append((watch, origin, dest, offset, length))
     return out
 
 
@@ -58,10 +83,9 @@ def run(conn, cfg):
 
     checked = 0
     hits = 0
-    for watch, origin, offset, length in _select(combos, budget, shift):
+    for watch, origin, dest, offset, length in _select(combos, budget, shift):
         depart = today + dt.timedelta(days=offset)
         ret = depart + dt.timedelta(days=length)
-        dest = watch["destination"]
         flight_filter = create_filter(
             flight_data=[
                 FlightData(date=depart.isoformat(), from_airport=origin, to_airport=dest),

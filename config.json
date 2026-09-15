@@ -73,10 +73,10 @@
         "LGA"
       ],
       "depart_between": [
-        "2026-12-12",
+        "2026-12-17",
         "2026-12-24"
       ],
-      "max_price": 330,
+      "max_price": 370,
       "note": "friend visiting NYC before Christmas",
       "trip_days": [
         5,

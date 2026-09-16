@@ -9,7 +9,6 @@
     "SFO",
     "MIA",
     "AUS",
-    "IAH",
     "DEN",
     "SEA",
     "LHR",
@@ -83,21 +82,6 @@
         7,
         10,
         14
-      ]
-    },
-    {
-      "destination": "IAH",
-      "max_price": 170,
-      "note": "watched route",
-      "trip_days": [
-        2,
-        3,
-        4,
-        7,
-        10,
-        14,
-        21,
-        28
       ]
     }
   ],

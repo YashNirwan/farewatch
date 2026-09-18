@@ -15,8 +15,12 @@ class SkiplaggedClient:
         from primp import Client
         self.client = Client(impersonate="chrome_131", timeout=30)
 
-    def cheapest_oneway(self, origin, dest, depart_date):
-        """Cheapest one-way for the date: dict(price, hidden, final) or None."""
+    def cheapest_oneway(self, origin, dest, depart_date, nonstop=False):
+        """Cheapest one-way for the date: dict(price, hidden, final, stops) or None.
+
+        With nonstop=True only single-segment itineraries count — which also
+        rules out hidden-city fares, since those need a layover to exit at.
+        """
         url = f"{API}?from={origin}&to={dest}&depart={depart_date}&format=v3"
         resp = self.client.get(url)
         if resp.status_code != 200:
@@ -29,11 +33,14 @@ class SkiplaggedClient:
             segments = flights.get(itin.get("flight"), {}).get("segments", [])
             if not cents or not segments:
                 continue
+            if nonstop and len(segments) != 1:
+                continue
             final = segments[-1]["arrival"]["airport"]
             candidate = {
                 "price": cents / 100.0,
                 "hidden": final != dest,
                 "final": final,
+                "stops": len(segments) - 1,
             }
             if best is None or candidate["price"] < best["price"]:
                 best = candidate
@@ -59,10 +66,11 @@ def run(conn, cfg):
     for watch, origin, dest, offset, length in _select(combos, budget, shift):
         depart = today + dt.timedelta(days=offset)
         ret = depart + dt.timedelta(days=length)
+        nonstop = bool(watch.get("nonstop"))
         try:
-            out = client.cheapest_oneway(origin, dest, depart.isoformat())
+            out = client.cheapest_oneway(origin, dest, depart.isoformat(), nonstop)
             time.sleep(3)
-            back = client.cheapest_oneway(dest, origin, ret.isoformat())
+            back = client.cheapest_oneway(dest, origin, ret.isoformat(), nonstop)
         except Exception as e:
             print(f"hidden error {origin}-{dest} {depart}: {str(e)[:120]}")
             time.sleep(5)
@@ -76,6 +84,8 @@ def run(conn, cfg):
             tags.append(f"out hidden-city (ticketed to {out['final']})")
         if back["hidden"]:
             tags.append(f"return hidden-city (ticketed to {back['final']})")
+        if nonstop:
+            tags.append("nonstop")
         tag = "; ".join(tags) if tags else "normal fares"
         print(f"{origin}-{dest} {depart}+{length}d: {out['price']:.0f}+{back['price']:.0f} = {total:.0f} USD [{tag}]")
         if total <= watch["max_price"]:

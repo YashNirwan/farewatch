@@ -94,6 +94,7 @@ def run(conn, cfg):
             trip="round-trip",
             seat="economy",
             passengers=Passengers(adults=1),
+            max_stops=0 if watch.get("nonstop") else None,
         )
         try:
             result = get_flights_from_filter(flight_filter)

@@ -76,6 +76,7 @@
         "2026-12-24"
       ],
       "max_price": 370,
+      "nonstop": true,
       "note": "friend visiting NYC before Christmas",
       "trip_days": [
         5,
